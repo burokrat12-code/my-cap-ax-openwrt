@@ -1,20 +1,12 @@
 #!/bin/bash
-#
-# https://github.com/P3TERX/Actions-OpenWrt
-# File name: diy-part2.sh
-# Description: OpenWrt DIY script part 2 (After Update feeds)
-#
-# Copyright (c) 2019-2024 P3TERX <https://p3terx.com>
-#
-# This is free software, licensed under the MIT License.
-# See /LICENSE for more information.
-#
 
-# Modify default IP
-#sed -i 's/192.168.1.1/192.168.50.5/g' package/base-files/files/bin/config_generate
+# 1. Создаем папку в будущем образе OpenWrt
+# Папка files в корне сборки — это способ добавить свои файлы в прошивку
+mkdir -p files/usr/bin
 
-# Modify default theme
-#sed -i 's/luci-theme-bootstrap/luci-theme-argon/g' feeds/luci/collections/luci/Makefile
+# 2. Скачиваем скомпилированный QFirehose специально для ARM64 (твой cAP ax)
+# Мы берем версию aarch64, так как armv7 у тебя не запустится
+wget -O files/usr/bin/qfirehose https://github.com/ich777/qfirehose/releases/latest/download/qfirehose-aarch64
 
-# Modify hostname
-#sed -i 's/OpenWrt/P3TERX-Router/g' package/base-files/files/bin/config_generate
+# 3. Даем файлу права на исполнение
+chmod +x files/usr/bin/qfirehose
