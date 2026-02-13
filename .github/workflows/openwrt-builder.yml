@@ -1,4 +1,4 @@
-name: OpenWrt Builder (Qualcomm IPQ60xx)
+name: OpenWrt Builder (Mikrotik cAP ax / Quectel)
 
 on:
   repository_dispatch:
@@ -42,11 +42,11 @@ jobs:
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-    - name: Update feeds
-      run: cd openwrt && ./scripts/feeds update -a
-
-    - name: Install feeds
-      run: cd openwrt && ./scripts/feeds install -a
+    - name: Update & Install feeds
+      run: |
+        cd openwrt
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
 
     - name: Download package
       id: package
@@ -54,40 +54,41 @@ jobs:
         cd openwrt
         rm -f .config
         
-        # Автоматический поиск правильного таргета для IPQ60xx
-        # Проверяем разные варианты написания (ipq60xx, ipq6018 и т.д.)
-        TARGET_NAME=$(ls target/linux/ | grep -E "ipq60xx|ipq6018" | head -n 1)
+        # --- ЦЕЛЕВАЯ ПЛАТФОРМА: QUALCOMMAX IPQ60XX ---
+        echo "CONFIG_TARGET_qualcommax=y" > .config
+        echo "CONFIG_TARGET_qualcommax_ipq60xx=y" >> .config
         
-        if [ -z "$TARGET_NAME" ]; then
-          echo "ОШИБКА: Процессор IPQ60xx не найден в этом репозитории!"
-          ls target/linux/ # Выведем список доступных, чтобы понять что не так
-          exit 1
-        fi
-        
-        echo "Найдена платформа: $TARGET_NAME"
-        echo "CONFIG_TARGET_${TARGET_NAME}=y" > .config
-        echo "CONFIG_TARGET_${TARGET_NAME}_generic=y" >> .config
-        
-        # --- ПАКЕТЫ ---
+        # Собираем образы для всех устройств (включая Mikrotik), чтобы не гадать с именами
+        echo "CONFIG_TARGET_MULTI_PROFILE=y" >> .config
+        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_mikrotik_cap-ax=y" >> .config
+
+        # --- ИНТЕРФЕЙС И ЯЗЫК ---
+        echo "CONFIG_PACKAGE_luci=y" >> .config
+        echo "CONFIG_PACKAGE_luci-ssl=y" >> .config
+        echo "CONFIG_PACKAGE_luci-i18n-base-ru=y" >> .config
+
+        # --- ПОДДЕРЖКА QUECTEL И УТИЛИТЫ ---
         cat >> .config <<EOF
-        CONFIG_PACKAGE_luci=y
-        CONFIG_PACKAGE_luci-ssl=y
-        CONFIG_PACKAGE_luci-i18n-base-ru=y
         CONFIG_PACKAGE_kmod-usb-net-qmi-wwan=y
         CONFIG_PACKAGE_kmod-usb-net-cdc-mbim=y
         CONFIG_PACKAGE_kmod-usb-serial-option=y
+        CONFIG_PACKAGE_kmod-usb-wdm=y
         CONFIG_PACKAGE_uqmi=y
+        CONFIG_PACKAGE_umbim=y
         CONFIG_PACKAGE_usb-modeswitch=y
         CONFIG_PACKAGE_luci-proto-qmi=y
         CONFIG_PACKAGE_picocom=y
         CONFIG_PACKAGE_sms-tool=y
         EOF
 
-        # Применяем
+        # Применяем конфигурацию
         make defconfig
         
-        # Финальная проверка перед долгой сборкой
-        grep "CONFIG_TARGET_${TARGET_NAME}=y" .config || (echo "Ошибка конфигурирования" && exit 1)
+        # Проверка на сброс таргета
+        if ! grep -q "CONFIG_TARGET_qualcommax=y" .config; then
+          echo "ОШИБКА: Платформа qualcommax не применилась!"
+          exit 1
+        fi
 
         make download -j8
 
@@ -96,14 +97,15 @@ jobs:
       run: |
         cd openwrt
         echo -e "$(nproc) thread compile"
-        make -j$(nproc) || make -j1 || make -j1 V=s
+        # Первая попытка в многопотоке, если упадет - дособирает в один поток с логами
+        make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Organize files
       id: organize
       if: steps.compile.outputs.status == 'success' && !cancelled()
       run: |
-        cd openwrt/bin/targets/ipq60xx/generic
+        cd openwrt/bin/targets/qualcommax/ipq60xx
         rm -rf packages
         echo "FIRMWARE=$PWD" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
@@ -114,6 +116,6 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: OpenWrt_IPQ60xx_${{ github.run_id }}
-        name: OpenWrt IPQ60xx Build (Generic + Quectel)
+        tag_name: OpenWrt_Qualcommax_${{ github.run_id }}
+        name: OpenWrt Mikrotik cAP ax Build
         files: ${{ env.FIRMWARE }}/*
