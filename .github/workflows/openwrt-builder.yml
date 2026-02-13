@@ -81,31 +81,49 @@ jobs:
       id: package
       run: |
         cd openwrt
-        # Стираем всё и пишем заново
         rm -f .config
         
-        # Жесткая привязка к MikroTik cAP ax
+        # Основная цель - MikroTik cAP ax
         echo "CONFIG_TARGET_ipq60xx=y" > .config
         echo "CONFIG_TARGET_ipq60xx_generic=y" >> .config
         echo "CONFIG_TARGET_ipq60xx_generic_DEVICE_mikrotik_cap-ax=y" >> .config
         
-        # Добавляем Luci и базовый софт
+        # Интерфейс и SSL
         echo "CONFIG_PACKAGE_luci=y" >> .config
         echo "CONFIG_PACKAGE_luci-ssl=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-ath11k=y" >> .config
 
-        # ПРИНУДИТЕЛЬНОЕ расширение
+        # --- ПОДДЕРЖКА МОДЕМОВ ---
+        # Драйверы шины USB
+        echo "CONFIG_PACKAGE_kmod-usb-net=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-usb-net-qmi-wwan=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-usb-net-cdc-mbim=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-usb-serial=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-usb-serial-option=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-usb-serial-wwan=y" >> .config
+        
+        # Протоколы и утилиты управления
+        echo "CONFIG_PACKAGE_uqmi=y" >> .config
+        echo "CONFIG_PACKAGE_umbim=y" >> .config
+        echo "CONFIG_PACKAGE_usb-modeswitch=y" >> .config
+        echo "CONFIG_PACKAGE_luci-proto-3g=y" >> .config
+        echo "CONFIG_PACKAGE_luci-proto-qmi=y" >> .config
+        
+        # Утилита для AT-команд (полезно для прошивки/настройки)
+        echo "CONFIG_PACKAGE_comgt=y" >> .config
+        echo "CONFIG_PACKAGE_minicom=y" >> .config
+
+        # Применяем настройки
         make defconfig
         
-        # ПРОВЕРКА: Если в файле нет слова mikrotik, билд упадет сейчас, а не через час
+        # Проверка таргета
         if ! grep -q "CONFIG_TARGET_ipq60xx_generic_DEVICE_mikrotik_cap-ax=y" .config; then
-          echo "ОШИБКА: Конфиг не применился! Текущий таргет:"
-          grep "CONFIG_TARGET" .config | head -n 5
+          echo "ОШИБКА: Конфиг опять слетел на дефолт!"
           exit 1
         fi
 
         make download -j8
-    - name: Compile the firmware
+        
+        - name: Compile the firmware
       id: compile
       run: |
         cd openwrt
