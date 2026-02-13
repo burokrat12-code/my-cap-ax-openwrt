@@ -1,12 +1,13 @@
-name: Mikrotik cAP ax Build Fix
+name: OpenWrt Builder (Mikrotik cAP ax / Quectel)
 
 on:
+  repository_dispatch:
   workflow_dispatch:
 
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
   REPO_BRANCH: master
-  TZ: Europe/Moscow
+  TZ: Asia/Shanghai
 
 jobs:
   build:
@@ -23,15 +24,23 @@ jobs:
       with:
         tool-cache: true
         android: true
+        dotnet: true
 
     - name: Initialization environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
       run: |
         sudo -E apt-get -qq update
         sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool lrzsz mkisofs msmtp ninja-build p7zip p7zip-full patch pkgconf python2.7 python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev
         sudo timedatectl set-timezone "$TZ"
+        sudo mkdir -p /workdir
+        sudo chown $USER:$GROUPS /workdir
 
     - name: Clone source code
-      run: git clone $REPO_URL -b $REPO_BRANCH openwrt
+      working-directory: /workdir
+      run: |
+        git clone $REPO_URL -b $REPO_BRANCH openwrt
+        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
     - name: Update & Install feeds
       run: |
@@ -39,15 +48,17 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Generate Config
+    - name: Download package
+      id: package
       run: |
         cd openwrt
-        # Жестко фиксируем таргет, чтобы он не улетел в x86
+        rm -f .config
+        
         echo "CONFIG_TARGET_qualcommax=y" > .config
         echo "CONFIG_TARGET_qualcommax_ipq60xx=y" >> .config
         echo "CONFIG_TARGET_MULTI_PROFILE=y" >> .config
-        
-        # Пакеты и драйверы
+        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_mikrotik_cap-ax=y" >> .config
+
         cat >> .config <<EOF
         CONFIG_PACKAGE_luci=y
         CONFIG_PACKAGE_luci-ssl=y
@@ -57,49 +68,46 @@ jobs:
         CONFIG_PACKAGE_kmod-usb-serial-option=y
         CONFIG_PACKAGE_kmod-usb-wdm=y
         CONFIG_PACKAGE_uqmi=y
+        CONFIG_PACKAGE_umbim=y
         CONFIG_PACKAGE_usb-modeswitch=y
         CONFIG_PACKAGE_luci-proto-qmi=y
+        CONFIG_PACKAGE_picocom=y
         CONFIG_PACKAGE_sms-tool=y
         EOF
-        
-        make defconfig
 
+        make defconfig
+        make download -j8
+
+    # --- ВОТ ЭТОТ ШАГ МЫ ДОБАВИЛИ, ЧТОБЫ НЕ ВЫЛЕТАЛО Error 2 ---
     - name: Fix APK base-files error
       run: |
         cd openwrt
-        # Создаем директорию, если её еще нет
         mkdir -p staging_dir/target-aarch64_cortex-a53_musl/
-        # Костыль: принудительно создаем файл версии, который требует APK менеджер
         echo "1-1" > staging_dir/target-aarch64_cortex-a53_musl/base-files.version
-        # Убеждаемся, что версия прописана в pkginfo
-        mkdir -p staging_dir/target-aarch64_cortex-a53_musl/pkginfo
-        echo "base-files" > staging_dir/target-aarch64_cortex-a53_musl/pkginfo/base-files.default.install
 
-    - name: Download & Compile
+    - name: Compile the firmware
       id: compile
       run: |
         cd openwrt
-        make download -j8
-        # Сначала пробуем в многопотоке, если упадет - добьем в один поток для логов
+        echo -e "$(nproc) thread compile"
         make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Organize files
       id: organize
-      if: steps.compile.outputs.status == 'success'
+      if: steps.compile.outputs.status == 'success' && !cancelled()
       run: |
         cd openwrt/bin/targets/qualcommax/ipq60xx
         rm -rf packages
-        # Оставляем только прошивки
-        echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
+        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload firmware to release
       uses: softprops/action-gh-release@v1
-      if: steps.organize.outputs.status == 'success'
+      if: steps.organize.outputs.status == 'success' && !cancelled()
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: Mikrotik-Build-${{ github.run_id }}
-        name: OpenWrt Build Result (Master Fix)
-        files: ${{ env.FIRMWARE_PATH }}/*
+        tag_name: OpenWrt_Qualcommax_${{ github.run_id }}
+        name: OpenWrt Mikrotik cAP ax Build
+        files: ${{ env.FIRMWARE }}/*
