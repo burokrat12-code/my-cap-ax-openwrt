@@ -81,20 +81,33 @@ jobs:
       id: package
       run: |
         cd openwrt
-        # ГАРАНТИРОВАННО ЧИСТЫЙ КОНФИГ ДЛЯ MIKROTIK
+        # 1. Сначала обновляем фиды, чтобы таргеты подтянулись
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+
+        # 2. Создаем конфиг с нуля
         rm -f .config
         echo "CONFIG_TARGET_ipq60xx=y" > .config
         echo "CONFIG_TARGET_ipq60xx_generic=y" >> .config
         echo "CONFIG_TARGET_ipq60xx_generic_DEVICE_mikrotik_cap-ax=y" >> .config
         echo "CONFIG_PACKAGE_luci=y" >> .config
         echo "CONFIG_PACKAGE_luci-ssl=y" >> .config
+
+        # 3. ПРИНУДИТЕЛЬНО расширяем конфиг до полного
+        make defconfig
         
-        # Заставляем систему принять конфиг
-        make oldconfig < /dev/null
-        
+        # 4. Проверка: если в конфиге остался x86, мы останавливаем билд
+        if grep -q "CONFIG_TARGET_x86=y" .config; then
+          echo "ОШИБКА: Опять вылез x86! Исправляем принудительно..."
+          sed -i 's/CONFIG_TARGET_x86=y/# CONFIG_TARGET_x86 is not set/' .config
+          sed -i 's/CONFIG_TARGET_x86_64=y/# CONFIG_TARGET_x86_64 is not set/' .config
+          echo "CONFIG_TARGET_ipq60xx=y" >> .config
+          echo "CONFIG_TARGET_ipq60xx_generic=y" >> .config
+          echo "CONFIG_TARGET_ipq60xx_generic_DEVICE_mikrotik_cap-ax=y" >> .config
+          make defconfig
+        fi
+
         make download -j8
-        find dl -size -1024c -exec ls -l {} \;
-        find dl -size -1024c -exec rm -f {} \;
 
     - name: Compile the firmware
       id: compile
