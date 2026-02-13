@@ -1,7 +1,6 @@
-name: OpenWrt Builder (Mikrotik cAP ax Fix V2)
+name: OpenWrt Builder (Mikrotik cAP ax - OPKG Stable)
 
 on:
-  repository_dispatch:
   workflow_dispatch:
 
 env:
@@ -24,11 +23,8 @@ jobs:
       with:
         tool-cache: true
         android: true
-        dotnet: true
 
     - name: Initialization environment
-      env:
-        DEBIAN_FRONTEND: noninteractive
       run: |
         sudo -E apt-get -qq update
         sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool lrzsz mkisofs msmtp ninja-build p7zip p7zip-full patch pkgconf python2.7 python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev
@@ -52,11 +48,16 @@ jobs:
       run: |
         cd openwrt
         rm -f .config
+        
+        # Основная платформа
         echo "CONFIG_TARGET_qualcommax=y" > .config
         echo "CONFIG_TARGET_qualcommax_ipq60xx=y" >> .config
-        echo "CONFIG_TARGET_MULTI_PROFILE=y" >> .config
         echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_mikrotik_cap-ax=y" >> .config
+        
+        # ОТКЛЮЧАЕМ APK, ВКЛЮЧАЕМ OPKG (это решит проблему Error 99)
+        echo "CONFIG_USE_APK=n" >> .config
 
+        # Пакеты для модема и интерфейс
         cat >> .config <<EOF
         CONFIG_PACKAGE_luci=y
         CONFIG_PACKAGE_luci-ssl=y
@@ -66,40 +67,30 @@ jobs:
         CONFIG_PACKAGE_kmod-usb-serial-option=y
         CONFIG_PACKAGE_kmod-usb-wdm=y
         CONFIG_PACKAGE_uqmi=y
-        CONFIG_PACKAGE_umbim=y
         CONFIG_PACKAGE_usb-modeswitch=y
         CONFIG_PACKAGE_luci-proto-qmi=y
-        CONFIG_PACKAGE_picocom=y
         CONFIG_PACKAGE_sms-tool=y
+        CONFIG_PACKAGE_picocom=y
         EOF
 
         make defconfig
-        make download -j8
 
-    - name: Fix APK world dependency error
+    - name: Download package
       run: |
         cd openwrt
-        # Удаляем принудительное добавление версий base-files, libc и kernel в скрипте установки APK
-        # Это предотвратит ошибку "not a valid world dependency"
-        sed -i 's/$(if $(APK),$(IB_LIBC) $(IB_KERNEL) $(IB_BASE_FILES))//g' include/target.mk
-        sed -i 's/base-files=$(shell cat $(STAGING_DIR)\/pkginfo\/base-files.version)//g' package/Makefile || true
-        # На всякий случай создаем пустые файлы версий, чтобы Makefile не ругался на их отсутствие
-        mkdir -p staging_dir/target-aarch64_cortex-a53_musl/pkginfo
-        touch staging_dir/target-aarch64_cortex-a53_musl/pkginfo/base-files.version
-        touch staging_dir/target-aarch64_cortex-a53_musl/pkginfo/libc.version
-        touch staging_dir/target-aarch64_cortex-a53_musl/pkginfo/kernel.version
+        make download -j8
 
     - name: Compile the firmware
       id: compile
       run: |
         cd openwrt
-        echo -e "$(nproc) thread compile"
+        # Собираем. Если упадет, V=s покажет конкретное место.
         make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Organize files
       id: organize
-      if: steps.compile.outputs.status == 'success' && !cancelled()
+      if: steps.compile.outputs.status == 'success'
       run: |
         cd openwrt/bin/targets/qualcommax/ipq60xx
         rm -rf packages
@@ -108,10 +99,10 @@ jobs:
 
     - name: Upload firmware to release
       uses: softprops/action-gh-release@v1
-      if: steps.organize.outputs.status == 'success' && !cancelled()
+      if: steps.organize.outputs.status == 'success'
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: OpenWrt_Qualcommax_${{ github.run_id }}
-        name: OpenWrt Mikrotik cAP ax Build
+        tag_name: Mikrotik_cAP_ax_${{ github.run_id }}
+        name: OpenWrt Mikrotik cAP ax (Stable OPKG)
         files: ${{ env.FIRMWARE }}/*
