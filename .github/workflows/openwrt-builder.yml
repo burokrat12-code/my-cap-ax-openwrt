@@ -81,6 +81,16 @@ jobs:
       id: package
       run: |
         cd openwrt
+        # СИЛОВОЕ ПЕРЕОПРЕДЕЛЕНИЕ ПЛАТФОРМЫ
+        echo "CONFIG_TARGET_ipq60xx=y" > .config
+        echo "CONFIG_TARGET_ipq60xx_generic=y" >> .config
+        echo "CONFIG_TARGET_ipq60xx_generic_DEVICE_mikrotik_cap-ax=y" >> .config
+        echo "CONFIG_PACKAGE_luci=y" >> .config
+        
+        # Удаляем мусор от x86, если он просочился
+        sed -i '/grub/d' .config
+        sed -i '/intel/d' .config
+        
         make defconfig
         make download -j8
         find dl -size -1024c -exec ls -l {} \;
