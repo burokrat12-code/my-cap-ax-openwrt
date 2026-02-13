@@ -123,5 +123,6 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: OpenWrt_IPQ60xx_${{ date }}
+        tag_name: OpenWrt_IPQ60xx_${{ github.run_id }}
+        name: OpenWrt IPQ60xx Build ${{ github.run_number }}
         files: ${{ env.FIRMWARE }}/*
