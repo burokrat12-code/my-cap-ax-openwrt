@@ -81,29 +81,30 @@ jobs:
       id: package
       run: |
         cd openwrt
-        # 1. Сначала создаем "стальной" конфиг
+        # Стираем всё и пишем заново
+        rm -f .config
+        
+        # Жесткая привязка к MikroTik cAP ax
         echo "CONFIG_TARGET_ipq60xx=y" > .config
         echo "CONFIG_TARGET_ipq60xx_generic=y" >> .config
         echo "CONFIG_TARGET_ipq60xx_generic_DEVICE_mikrotik_cap-ax=y" >> .config
         
-        # 2. Принудительно отключаем всё, что связано с x86 на уровне текста
-        sed -i 's/CONFIG_TARGET_x86=y/# CONFIG_TARGET_x86 is not set/' .config
-        
-        # 3. LuCI и база
+        # Добавляем Luci и базовый софт
         echo "CONFIG_PACKAGE_luci=y" >> .config
         echo "CONFIG_PACKAGE_luci-ssl=y" >> .config
-        
-        # 4. Важнейший шаг: расширяем конфиг и ПРОВЕРЯЕМ результат
+        echo "CONFIG_PACKAGE_kmod-ath11k=y" >> .config
+
+        # ПРИНУДИТЕЛЬНОЕ расширение
         make defconfig
         
-        # Если GRUB всё еще тут - удаляем его из дерева сборки физически
-        rm -rf package/boot/grub2
-        
-        # 5. Скачивание
-        make download -j8
-        find dl -size -1024c -exec ls -l {} \;
-        find dl -size -1024c -exec rm -f {} \;
+        # ПРОВЕРКА: Если в файле нет слова mikrotik, билд упадет сейчас, а не через час
+        if ! grep -q "CONFIG_TARGET_ipq60xx_generic_DEVICE_mikrotik_cap-ax=y" .config; then
+          echo "ОШИБКА: Конфиг не применился! Текущий таргет:"
+          grep "CONFIG_TARGET" .config | head -n 5
+          exit 1
+        fi
 
+        make download -j8
     - name: Compile the firmware
       id: compile
       run: |
