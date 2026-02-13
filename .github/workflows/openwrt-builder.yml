@@ -72,7 +72,6 @@ jobs:
     - name: Load custom configuration
       run: |
         [ -e files ] && mv files openwrt/files
-        # Мы НЕ копируем .config отсюда, чтобы он не перебил наши настройки
         chmod +x $DIY_P2_SH
         cd openwrt
         $GITHUB_WORKSPACE/$DIY_P2_SH
@@ -93,37 +92,34 @@ jobs:
         echo "CONFIG_PACKAGE_luci-ssl=y" >> .config
 
         # --- ПОДДЕРЖКА МОДЕМОВ ---
-        # Драйверы шины USB
         echo "CONFIG_PACKAGE_kmod-usb-net=y" >> .config
         echo "CONFIG_PACKAGE_kmod-usb-net-qmi-wwan=y" >> .config
         echo "CONFIG_PACKAGE_kmod-usb-net-cdc-mbim=y" >> .config
         echo "CONFIG_PACKAGE_kmod-usb-serial=y" >> .config
         echo "CONFIG_PACKAGE_kmod-usb-serial-option=y" >> .config
         echo "CONFIG_PACKAGE_kmod-usb-serial-wwan=y" >> .config
-        
-        # Протоколы и утилиты управления
         echo "CONFIG_PACKAGE_uqmi=y" >> .config
         echo "CONFIG_PACKAGE_umbim=y" >> .config
         echo "CONFIG_PACKAGE_usb-modeswitch=y" >> .config
         echo "CONFIG_PACKAGE_luci-proto-3g=y" >> .config
         echo "CONFIG_PACKAGE_luci-proto-qmi=y" >> .config
-        
-        # Утилита для AT-команд (полезно для прошивки/настройки)
         echo "CONFIG_PACKAGE_comgt=y" >> .config
         echo "CONFIG_PACKAGE_minicom=y" >> .config
 
         # Применяем настройки
         make defconfig
         
-        # Проверка таргета
+        # Проверка таргета перед долгой сборкой
         if ! grep -q "CONFIG_TARGET_ipq60xx_generic_DEVICE_mikrotik_cap-ax=y" .config; then
-          echo "ОШИБКА: Конфиг опять слетел на дефолт!"
+          echo "ОШИБКА: Конфиг не применился! Проверь таргет."
           exit 1
         fi
 
         make download -j8
-        
-        - name: Compile the firmware
+        find dl -size -1024c -exec ls -l {} \;
+        find dl -size -1024c -exec rm -f {} \;
+
+    - name: Compile the firmware
       id: compile
       run: |
         cd openwrt
