@@ -1,4 +1,4 @@
-name: OpenWrt Builder (Mikrotik cAP ax / Quectel)
+name: OpenWrt Builder (Mikrotik cAP ax Fix V2)
 
 on:
   repository_dispatch:
@@ -48,12 +48,10 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Download package
-      id: package
+    - name: Generate Config
       run: |
         cd openwrt
         rm -f .config
-        
         echo "CONFIG_TARGET_qualcommax=y" > .config
         echo "CONFIG_TARGET_qualcommax_ipq60xx=y" >> .config
         echo "CONFIG_TARGET_MULTI_PROFILE=y" >> .config
@@ -78,12 +76,18 @@ jobs:
         make defconfig
         make download -j8
 
-    # --- ВОТ ЭТОТ ШАГ МЫ ДОБАВИЛИ, ЧТОБЫ НЕ ВЫЛЕТАЛО Error 2 ---
-    - name: Fix APK base-files error
+    - name: Fix APK world dependency error
       run: |
         cd openwrt
-        mkdir -p staging_dir/target-aarch64_cortex-a53_musl/
-        echo "1-1" > staging_dir/target-aarch64_cortex-a53_musl/base-files.version
+        # Удаляем принудительное добавление версий base-files, libc и kernel в скрипте установки APK
+        # Это предотвратит ошибку "not a valid world dependency"
+        sed -i 's/$(if $(APK),$(IB_LIBC) $(IB_KERNEL) $(IB_BASE_FILES))//g' include/target.mk
+        sed -i 's/base-files=$(shell cat $(STAGING_DIR)\/pkginfo\/base-files.version)//g' package/Makefile || true
+        # На всякий случай создаем пустые файлы версий, чтобы Makefile не ругался на их отсутствие
+        mkdir -p staging_dir/target-aarch64_cortex-a53_musl/pkginfo
+        touch staging_dir/target-aarch64_cortex-a53_musl/pkginfo/base-files.version
+        touch staging_dir/target-aarch64_cortex-a53_musl/pkginfo/libc.version
+        touch staging_dir/target-aarch64_cortex-a53_musl/pkginfo/kernel.version
 
     - name: Compile the firmware
       id: compile
