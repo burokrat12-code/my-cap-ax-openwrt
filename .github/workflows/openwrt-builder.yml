@@ -1,11 +1,11 @@
-name: OpenWrt Stable IPQ60xx
+name: Mikrotik cAP ax Build Fix
 
 on:
   workflow_dispatch:
 
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
-  REPO_BRANCH: openwrt-23.05
+  REPO_BRANCH: master
   TZ: Europe/Moscow
 
 jobs:
@@ -42,38 +42,45 @@ jobs:
     - name: Generate Config
       run: |
         cd openwrt
-        # Пишем конфиг с нуля, жестко задавая таргет
-        cat > .config <<EOF
-        CONFIG_TARGET_qualcommax=y
-        CONFIG_TARGET_qualcommax_ipq60xx=y
-        CONFIG_TARGET_MULTI_PROFILE=y
-        CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_mikrotik_cap-ax=y
+        # Жестко фиксируем таргет, чтобы он не улетел в x86
+        echo "CONFIG_TARGET_qualcommax=y" > .config
+        echo "CONFIG_TARGET_qualcommax_ipq60xx=y" >> .config
+        echo "CONFIG_TARGET_MULTI_PROFILE=y" >> .config
         
-        # Отключаем APK (причина ошибки 99)
-        # CONFIG_USE_APK is not set
-        
-        # Интерфейс и модем
+        # Пакеты и драйверы
+        cat >> .config <<EOF
         CONFIG_PACKAGE_luci=y
         CONFIG_PACKAGE_luci-ssl=y
         CONFIG_PACKAGE_luci-i18n-base-ru=y
         CONFIG_PACKAGE_kmod-usb-net-qmi-wwan=y
         CONFIG_PACKAGE_kmod-usb-net-cdc-mbim=y
         CONFIG_PACKAGE_kmod-usb-serial-option=y
+        CONFIG_PACKAGE_kmod-usb-wdm=y
         CONFIG_PACKAGE_uqmi=y
         CONFIG_PACKAGE_usb-modeswitch=y
         CONFIG_PACKAGE_luci-proto-qmi=y
         CONFIG_PACKAGE_sms-tool=y
         EOF
         
-        # Принудительно применяем
         make defconfig
+
+    - name: Fix APK base-files error
+      run: |
+        cd openwrt
+        # Создаем директорию, если её еще нет
+        mkdir -p staging_dir/target-aarch64_cortex-a53_musl/
+        # Костыль: принудительно создаем файл версии, который требует APK менеджер
+        echo "1-1" > staging_dir/target-aarch64_cortex-a53_musl/base-files.version
+        # Убеждаемся, что версия прописана в pkginfo
+        mkdir -p staging_dir/target-aarch64_cortex-a53_musl/pkginfo
+        echo "base-files" > staging_dir/target-aarch64_cortex-a53_musl/pkginfo/base-files.default.install
 
     - name: Download & Compile
       id: compile
       run: |
         cd openwrt
         make download -j8
-        # Собираем. Если упадет в многопотоке - дособерет в один.
+        # Сначала пробуем в многопотоке, если упадет - добьем в один поток для логов
         make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
 
@@ -83,14 +90,16 @@ jobs:
       run: |
         cd openwrt/bin/targets/qualcommax/ipq60xx
         rm -rf packages
+        # Оставляем только прошивки
         echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
 
-    - name: Upload firmware
+    - name: Upload firmware to release
       uses: softprops/action-gh-release@v1
       if: steps.organize.outputs.status == 'success'
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: cAP-ax-v23.05-${{ github.run_id }}
+        tag_name: Mikrotik-Build-${{ github.run_id }}
+        name: OpenWrt Build Result (Master Fix)
         files: ${{ env.FIRMWARE_PATH }}/*
