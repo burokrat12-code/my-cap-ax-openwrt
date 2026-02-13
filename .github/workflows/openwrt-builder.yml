@@ -42,16 +42,17 @@ jobs:
     - name: Generate Config
       run: |
         cd openwrt
-        # Установка целевой платформы
-        echo "CONFIG_TARGET_qualcommax=y" > .config
-        echo "CONFIG_TARGET_qualcommax_ipq60xx=y" >> .config
-        echo "CONFIG_TARGET_MULTI_PROFILE=y" >> .config
+        # Пишем конфиг с нуля, жестко задавая таргет
+        cat > .config <<EOF
+        CONFIG_TARGET_qualcommax=y
+        CONFIG_TARGET_qualcommax_ipq60xx=y
+        CONFIG_TARGET_MULTI_PROFILE=y
+        CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_mikrotik_cap-ax=y
         
-        # ОТКЛЮЧАЕМ ПРОБЛЕМНЫЙ APK (возвращаем старый добрый opkg)
-        echo "# CONFIG_USE_APK is not set" >> .config
-
-        # Пакеты Luci и драйверы модема
-        cat >> .config <<EOF
+        # Отключаем APK (причина ошибки 99)
+        # CONFIG_USE_APK is not set
+        
+        # Интерфейс и модем
         CONFIG_PACKAGE_luci=y
         CONFIG_PACKAGE_luci-ssl=y
         CONFIG_PACKAGE_luci-i18n-base-ru=y
@@ -64,6 +65,7 @@ jobs:
         CONFIG_PACKAGE_sms-tool=y
         EOF
         
+        # Принудительно применяем
         make defconfig
 
     - name: Download & Compile
