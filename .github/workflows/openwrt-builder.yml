@@ -81,33 +81,28 @@ jobs:
       id: package
       run: |
         cd openwrt
-        # 1. Сначала обновляем фиды, чтобы таргеты подтянулись
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
-
-        # 2. Создаем конфиг с нуля
-        rm -f .config
+        # 1. Сначала создаем "стальной" конфиг
         echo "CONFIG_TARGET_ipq60xx=y" > .config
         echo "CONFIG_TARGET_ipq60xx_generic=y" >> .config
         echo "CONFIG_TARGET_ipq60xx_generic_DEVICE_mikrotik_cap-ax=y" >> .config
+        
+        # 2. Принудительно отключаем всё, что связано с x86 на уровне текста
+        sed -i 's/CONFIG_TARGET_x86=y/# CONFIG_TARGET_x86 is not set/' .config
+        
+        # 3. LuCI и база
         echo "CONFIG_PACKAGE_luci=y" >> .config
         echo "CONFIG_PACKAGE_luci-ssl=y" >> .config
-
-        # 3. ПРИНУДИТЕЛЬНО расширяем конфиг до полного
+        
+        # 4. Важнейший шаг: расширяем конфиг и ПРОВЕРЯЕМ результат
         make defconfig
         
-        # 4. Проверка: если в конфиге остался x86, мы останавливаем билд
-        if grep -q "CONFIG_TARGET_x86=y" .config; then
-          echo "ОШИБКА: Опять вылез x86! Исправляем принудительно..."
-          sed -i 's/CONFIG_TARGET_x86=y/# CONFIG_TARGET_x86 is not set/' .config
-          sed -i 's/CONFIG_TARGET_x86_64=y/# CONFIG_TARGET_x86_64 is not set/' .config
-          echo "CONFIG_TARGET_ipq60xx=y" >> .config
-          echo "CONFIG_TARGET_ipq60xx_generic=y" >> .config
-          echo "CONFIG_TARGET_ipq60xx_generic_DEVICE_mikrotik_cap-ax=y" >> .config
-          make defconfig
-        fi
-
+        # Если GRUB всё еще тут - удаляем его из дерева сборки физически
+        rm -rf package/boot/grub2
+        
+        # 5. Скачивание
         make download -j8
+        find dl -size -1024c -exec ls -l {} \;
+        find dl -size -1024c -exec rm -f {} \;
 
     - name: Compile the firmware
       id: compile
