@@ -6,7 +6,7 @@ on:
 
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
-  REPO_BRANCH: openwrt-23.05
+  REPO_BRANCH: master
   TZ: Asia/Shanghai
 
 jobs:
@@ -54,36 +54,40 @@ jobs:
         cd openwrt
         rm -f .config
         
-        # --- ЦЕЛЕВАЯ ПЛАТФОРМА: QUALCOMM IPQ60XX ---
-        echo "CONFIG_TARGET_ipq60xx=y" > .config
-        echo "CONFIG_TARGET_ipq60xx_generic=y" >> .config
+        # Автоматический поиск правильного таргета для IPQ60xx
+        # Проверяем разные варианты написания (ipq60xx, ipq6018 и т.д.)
+        TARGET_NAME=$(ls target/linux/ | grep -E "ipq60xx|ipq6018" | head -n 1)
         
-        # --- ИНТЕРФЕЙС И ЯЗЫК ---
-        echo "CONFIG_PACKAGE_luci=y" >> .config
-        echo "CONFIG_PACKAGE_luci-ssl=y" >> .config
-        echo "CONFIG_PACKAGE_luci-i18n-base-ru=y" >> .config
-
-        # --- ПОДДЕРЖКА QUECTEL И УТИЛИТЫ ---
+        if [ -z "$TARGET_NAME" ]; then
+          echo "ОШИБКА: Процессор IPQ60xx не найден в этом репозитории!"
+          ls target/linux/ # Выведем список доступных, чтобы понять что не так
+          exit 1
+        fi
+        
+        echo "Найдена платформа: $TARGET_NAME"
+        echo "CONFIG_TARGET_${TARGET_NAME}=y" > .config
+        echo "CONFIG_TARGET_${TARGET_NAME}_generic=y" >> .config
+        
+        # --- ПАКЕТЫ ---
         cat >> .config <<EOF
+        CONFIG_PACKAGE_luci=y
+        CONFIG_PACKAGE_luci-ssl=y
+        CONFIG_PACKAGE_luci-i18n-base-ru=y
         CONFIG_PACKAGE_kmod-usb-net-qmi-wwan=y
         CONFIG_PACKAGE_kmod-usb-net-cdc-mbim=y
         CONFIG_PACKAGE_kmod-usb-serial-option=y
-        CONFIG_PACKAGE_kmod-usb-wdm=y
         CONFIG_PACKAGE_uqmi=y
-        CONFIG_PACKAGE_umbim=y
         CONFIG_PACKAGE_usb-modeswitch=y
         CONFIG_PACKAGE_luci-proto-qmi=y
         CONFIG_PACKAGE_picocom=y
         CONFIG_PACKAGE_sms-tool=y
         EOF
 
-        # Применяем конфигурацию и проверяем, что таргет не "улетел"
+        # Применяем
         make defconfig
         
-        if ! grep -q "CONFIG_TARGET_ipq60xx=y" .config; then
-          echo "ОШИБКА: Платформа ipq60xx не найдена в репозитории!"
-          exit 1
-        fi
+        # Финальная проверка перед долгой сборкой
+        grep "CONFIG_TARGET_${TARGET_NAME}=y" .config || (echo "Ошибка конфигурирования" && exit 1)
 
         make download -j8
 
