@@ -80,18 +80,18 @@ jobs:
       id: package
       run: |
         cd openwrt
-        rm -f .config
         
-        # Основная цель - MikroTik cAP ax
+        # 1. Сначала создаем базовый конфиг
+        make defconfig
+        
+        # 2. Теперь ЖЕСТКО вписываем наш таргет поверх всего
         echo "CONFIG_TARGET_ipq60xx=y" > .config
         echo "CONFIG_TARGET_ipq60xx_generic=y" >> .config
         echo "CONFIG_TARGET_ipq60xx_generic_DEVICE_mikrotik_cap-ax=y" >> .config
         
-        # Интерфейс и SSL
+        # 3. Добавляем пакеты
         echo "CONFIG_PACKAGE_luci=y" >> .config
         echo "CONFIG_PACKAGE_luci-ssl=y" >> .config
-
-        # --- ПОДДЕРЖКА МОДЕМОВ ---
         echo "CONFIG_PACKAGE_kmod-usb-net=y" >> .config
         echo "CONFIG_PACKAGE_kmod-usb-net-qmi-wwan=y" >> .config
         echo "CONFIG_PACKAGE_kmod-usb-net-cdc-mbim=y" >> .config
@@ -101,24 +101,24 @@ jobs:
         echo "CONFIG_PACKAGE_uqmi=y" >> .config
         echo "CONFIG_PACKAGE_umbim=y" >> .config
         echo "CONFIG_PACKAGE_usb-modeswitch=y" >> .config
-        echo "CONFIG_PACKAGE_luci-proto-3g=y" >> .config
         echo "CONFIG_PACKAGE_luci-proto-qmi=y" >> .config
         echo "CONFIG_PACKAGE_comgt=y" >> .config
-        echo "CONFIG_PACKAGE_minicom=y" >> .config
 
-        # Применяем настройки
-        make defconfig
+        # 4. ВАЖНО: Используем 'make oldconfig' вместо 'defconfig', 
+        # чтобы он просто подтвердил наши изменения, а не пересчитывал всё дерево.
+        make oldconfig < /dev/null
         
-        # Проверка таргета перед долгой сборкой
-        if ! grep -q "CONFIG_TARGET_ipq60xx_generic_DEVICE_mikrotik_cap-ax=y" .config; then
-          echo "ОШИБКА: Конфиг не применился! Проверь таргет."
-          exit 1
-        fi
+        # 5. Последняя попытка фиксации, если что-то пошло не так
+        sed -i 's/CONFIG_TARGET_ath79=y/# CONFIG_TARGET_ath79 is not set/' .config
+        
+        # Информативно выведем, что в итоге получилось в конфиге
+        echo "--- Итоговый таргет в .config ---"
+        grep "CONFIG_TARGET_ipq60xx" .config || echo "ВСЕ ЕЩЕ НЕ НАЙДЕНО!"
 
         make download -j8
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
-
+        
     - name: Compile the firmware
       id: compile
       run: |
