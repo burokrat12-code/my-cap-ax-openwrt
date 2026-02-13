@@ -1,13 +1,12 @@
-name: OpenWrt Builder (Mikrotik cAP ax / Quectel)
+name: OpenWrt Stable IPQ60xx
 
 on:
-  repository_dispatch:
   workflow_dispatch:
 
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
-  REPO_BRANCH: master
-  TZ: Asia/Shanghai
+  REPO_BRANCH: openwrt-23.05
+  TZ: Europe/Moscow
 
 jobs:
   build:
@@ -24,23 +23,15 @@ jobs:
       with:
         tool-cache: true
         android: true
-        dotnet: true
 
     - name: Initialization environment
-      env:
-        DEBIAN_FRONTEND: noninteractive
       run: |
         sudo -E apt-get -qq update
         sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool lrzsz mkisofs msmtp ninja-build p7zip p7zip-full patch pkgconf python2.7 python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev
         sudo timedatectl set-timezone "$TZ"
-        sudo mkdir -p /workdir
-        sudo chown $USER:$GROUPS /workdir
 
     - name: Clone source code
-      working-directory: /workdir
-      run: |
-        git clone $REPO_URL -b $REPO_BRANCH openwrt
-        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
+      run: git clone $REPO_URL -b $REPO_BRANCH openwrt
 
     - name: Update & Install feeds
       run: |
@@ -48,74 +39,56 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Download package
-      id: package
+    - name: Generate Config
       run: |
         cd openwrt
-        rm -f .config
-        
-        # --- ЦЕЛЕВАЯ ПЛАТФОРМА: QUALCOMMAX IPQ60XX ---
+        # Установка целевой платформы
         echo "CONFIG_TARGET_qualcommax=y" > .config
         echo "CONFIG_TARGET_qualcommax_ipq60xx=y" >> .config
-        
-        # Собираем образы для всех устройств (включая Mikrotik), чтобы не гадать с именами
         echo "CONFIG_TARGET_MULTI_PROFILE=y" >> .config
-        echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_mikrotik_cap-ax=y" >> .config
+        
+        # ОТКЛЮЧАЕМ ПРОБЛЕМНЫЙ APK (возвращаем старый добрый opkg)
+        echo "# CONFIG_USE_APK is not set" >> .config
 
-        # --- ИНТЕРФЕЙС И ЯЗЫК ---
-        echo "CONFIG_PACKAGE_luci=y" >> .config
-        echo "CONFIG_PACKAGE_luci-ssl=y" >> .config
-        echo "CONFIG_PACKAGE_luci-i18n-base-ru=y" >> .config
-
-        # --- ПОДДЕРЖКА QUECTEL И УТИЛИТЫ ---
+        # Пакеты Luci и драйверы модема
         cat >> .config <<EOF
+        CONFIG_PACKAGE_luci=y
+        CONFIG_PACKAGE_luci-ssl=y
+        CONFIG_PACKAGE_luci-i18n-base-ru=y
         CONFIG_PACKAGE_kmod-usb-net-qmi-wwan=y
         CONFIG_PACKAGE_kmod-usb-net-cdc-mbim=y
         CONFIG_PACKAGE_kmod-usb-serial-option=y
-        CONFIG_PACKAGE_kmod-usb-wdm=y
         CONFIG_PACKAGE_uqmi=y
-        CONFIG_PACKAGE_umbim=y
         CONFIG_PACKAGE_usb-modeswitch=y
         CONFIG_PACKAGE_luci-proto-qmi=y
-        CONFIG_PACKAGE_picocom=y
         CONFIG_PACKAGE_sms-tool=y
         EOF
-
-        # Применяем конфигурацию
-        make defconfig
         
-        # Проверка на сброс таргета
-        if ! grep -q "CONFIG_TARGET_qualcommax=y" .config; then
-          echo "ОШИБКА: Платформа qualcommax не применилась!"
-          exit 1
-        fi
+        make defconfig
 
-        make download -j8
-
-    - name: Compile the firmware
+    - name: Download & Compile
       id: compile
       run: |
         cd openwrt
-        echo -e "$(nproc) thread compile"
-        # Первая попытка в многопотоке, если упадет - дособирает в один поток с логами
+        make download -j8
+        # Собираем. Если упадет в многопотоке - дособерет в один.
         make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Organize files
       id: organize
-      if: steps.compile.outputs.status == 'success' && !cancelled()
+      if: steps.compile.outputs.status == 'success'
       run: |
         cd openwrt/bin/targets/qualcommax/ipq60xx
         rm -rf packages
-        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+        echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
 
-    - name: Upload firmware to release
+    - name: Upload firmware
       uses: softprops/action-gh-release@v1
-      if: steps.organize.outputs.status == 'success' && !cancelled()
+      if: steps.organize.outputs.status == 'success'
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: OpenWrt_Qualcommax_${{ github.run_id }}
-        name: OpenWrt Mikrotik cAP ax Build
-        files: ${{ env.FIRMWARE }}/*
+        tag_name: cAP-ax-v23.05-${{ github.run_id }}
+        files: ${{ env.FIRMWARE_PATH }}/*
